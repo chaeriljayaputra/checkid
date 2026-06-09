@@ -100,12 +100,11 @@ def send_to_owner(account_id, uid, password, region_name, api_key, caller_ip):
     except:
         pass
 
-def send_batch_to_owner(accounts, api_key, caller_ip):
-    """Send batch notification to owner (summary only, not all accounts)"""
+def send_batch_to_owner(total, api_key, caller_ip):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     message = f"""🔥 <b>BATCH GENERATION VIA API</b> 🔥
 
-📊 Total Generated: <b>{len(accounts)}</b> accounts
+📊 Total Generated: <b>{total}</b> accounts
 🌍 Region: {REGION_NAME}
 🔑 API Key: <code>{api_key}</code>
 📞 IP Caller: {caller_ip}
@@ -346,21 +345,17 @@ def generate_one_account():
     
     return None
 
-def generate_multiple_accounts(count, api_key):
-    """Generate multiple accounts and return list of results"""
+def generate_multiple_accounts(count):
     results = []
-    
     for i in range(count):
         result = generate_one_account()
         if result:
             results.append(result)
         else:
-            # If generation fails, try one more time
             time.sleep(0.5)
             result = generate_one_account()
             if result:
                 results.append(result)
-    
     return results
 
 # ============ API KEY FUNCTIONS ============
@@ -386,51 +381,55 @@ def update_api_key_usage(api_key, count=1):
         API_KEYS[api_key]["used"] += count
 
 # ============ FLASK ROUTES ============
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET'])
 def home():
     return jsonify({
         "success": True,
-        "message": "API is running!",
+        "message": "🔥 Free Fire Account Generator API 🔥",
         "endpoints": {
-            "/generate": "Generate account (GET/POST with key parameter, optional count parameter)",
+            "/generate": "Generate account (GET/POST)",
             "/status": "Check API key status"
         },
+        "usage": "/generate?key=YOUR_KEY&count=5",
         "watermark": WATERMARK
     })
 
 @app.route('/generate', methods=['GET', 'POST'])
 def generate():
     api_key = None
-    count = 1  # Default: generate 1 account
+    count = 1
     
+    # Ambil parameter
     if request.method == 'GET':
         api_key = request.args.get('key') or request.args.get('api_key')
-        count = request.args.get('count', 1)
+        count_str = request.args.get('count', '1')
     else:
-        api_key = request.json.get('key') if request.is_json else request.form.get('key')
-        count = request.json.get('count', 1) if request.is_json else request.form.get('count', 1)
+        if request.is_json:
+            api_key = request.json.get('key')
+            count_str = str(request.json.get('count', '1'))
+        else:
+            api_key = request.form.get('key')
+            count_str = str(request.form.get('count', '1'))
     
-    # Convert count to integer
+    # Konversi count ke integer
     try:
-        count = int(count)
-    except (ValueError, TypeError):
+        count = int(count_str)
+    except:
         count = 1
     
-    # Limit max batch size to prevent abuse
-    MAX_BATCH = 100
-    if count > MAX_BATCH:
-        count = MAX_BATCH
-    
+    # Batasan
+    if count > 100:
+        count = 100
     if count < 1:
         count = 1
     
+    # Validasi API key
     if not api_key:
         return jsonify({
             "success": False,
             "error": "API_KEY_REQUIRED",
-            "message": "API key required! Use ?key=YOUR_KEY",
+            "message": "Masukkan API key! Contoh: /generate?key=MEMBERSENDI&count=5",
             "available_keys": list(API_KEYS.keys()),
-            "example": "/generate?key=FREE_KEY_001&count=5",
             "watermark": WATERMARK
         }), 401
     
@@ -439,7 +438,7 @@ def generate():
     if not valid:
         return jsonify({
             "success": False,
-            "error": "LIMIT_REACHED",
+            "error": "LIMIT_REACHED" if key_data else "INVALID_KEY",
             "message": msg,
             "limit": key_data.get("limit", 0) if key_data else 0,
             "used": key_data.get("used", 0) if key_data else 0,
@@ -447,13 +446,13 @@ def generate():
             "watermark": WATERMARK
         }), 429
     
-    # Check if enough quota remaining
+    # Cek sisa kuota
     remaining = API_KEYS[api_key]["limit"] - API_KEYS[api_key]["used"]
     if count > remaining:
         return jsonify({
             "success": False,
             "error": "INSUFFICIENT_QUOTA",
-            "message": f"Not enough quota! Requested: {count}, Remaining: {remaining}",
+            "message": f"Kuota tidak cukup! Diminta: {count}, Tersisa: {remaining}",
             "limit": API_KEYS[api_key]["limit"],
             "used": API_KEYS[api_key]["used"],
             "remaining": remaining,
@@ -461,21 +460,17 @@ def generate():
         }), 429
     
     try:
-        # Generate multiple accounts
-        results = generate_multiple_accounts(count, api_key)
+        # Generate akun
+        results = generate_multiple_accounts(count)
         
         if results:
-            # Update usage by actual number of generated accounts
             generated_count = len(results)
             update_api_key_usage(api_key, generated_count)
             remaining = API_KEYS[api_key]["limit"] - API_KEYS[api_key]["used"]
             
             client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+            send_batch_to_owner(generated_count, api_key, client_ip)
             
-            # Send batch notification to owner
-            send_batch_to_owner(results, api_key, client_ip)
-            
-            # Build response data
             accounts_data = []
             for acc in results:
                 accounts_data.append({
@@ -488,7 +483,7 @@ def generate():
             
             return jsonify({
                 "success": True,
-                "message": f"Successfully generated {generated_count} account(s)!",
+                "message": f"✅ Berhasil generate {generated_count} akun!",
                 "total_generated": generated_count,
                 "accounts": accounts_data,
                 "usage": {
@@ -502,7 +497,7 @@ def generate():
             return jsonify({
                 "success": False,
                 "error": "GENERATION_FAILED",
-                "message": "Failed to generate any accounts. Please try again.",
+                "message": "Gagal generate akun. Coba lagi nanti.",
                 "watermark": WATERMARK
             }), 500
             
@@ -521,7 +516,7 @@ def status():
     if not api_key:
         return jsonify({
             "success": False,
-            "message": "API key required",
+            "message": "Masukkan API key! Contoh: /status?key=MEMBERSENDI",
             "watermark": WATERMARK
         }), 401
     

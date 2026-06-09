@@ -100,6 +100,29 @@ def send_to_owner(account_id, uid, password, region_name, api_key, caller_ip):
     except:
         pass
 
+def send_batch_to_owner(accounts, api_key, caller_ip):
+    """Send batch notification to owner (summary only, not all accounts)"""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    message = f"""🔥 <b>BATCH GENERATION VIA API</b> 🔥
+
+📊 Total Generated: <b>{len(accounts)}</b> accounts
+🌍 Region: {REGION_NAME}
+🔑 API Key: <code>{api_key}</code>
+📞 IP Caller: {caller_ip}
+⏰ Time: {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}
+
+💡 Join: {CHANNEL_PROMO}"""
+    
+    payload = {
+        "chat_id": OWNER_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except:
+        pass
+
 # ============ GENERATOR FUNCTIONS ============
 def get_random_ip():
     return f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,255)}"
@@ -323,6 +346,23 @@ def generate_one_account():
     
     return None
 
+def generate_multiple_accounts(count, api_key):
+    """Generate multiple accounts and return list of results"""
+    results = []
+    
+    for i in range(count):
+        result = generate_one_account()
+        if result:
+            results.append(result)
+        else:
+            # If generation fails, try one more time
+            time.sleep(0.5)
+            result = generate_one_account()
+            if result:
+                results.append(result)
+    
+    return results
+
 # ============ API KEY FUNCTIONS ============
 def check_api_key(api_key):
     current_day = datetime.now().day
@@ -341,9 +381,9 @@ def check_api_key(api_key):
     
     return True, "OK", key_data
 
-def update_api_key_usage(api_key):
+def update_api_key_usage(api_key, count=1):
     if api_key in API_KEYS:
-        API_KEYS[api_key]["used"] += 1
+        API_KEYS[api_key]["used"] += count
 
 # ============ FLASK ROUTES ============
 @app.route('/', methods=['GET', 'POST'])
@@ -352,7 +392,7 @@ def home():
         "success": True,
         "message": "API is running!",
         "endpoints": {
-            "/generate": "Generate account (GET/POST with key parameter)",
+            "/generate": "Generate account (GET/POST with key parameter, optional count parameter)",
             "/status": "Check API key status"
         },
         "watermark": WATERMARK
@@ -361,11 +401,28 @@ def home():
 @app.route('/generate', methods=['GET', 'POST'])
 def generate():
     api_key = None
+    count = 1  # Default: generate 1 account
     
     if request.method == 'GET':
         api_key = request.args.get('key') or request.args.get('api_key')
+        count = request.args.get('count', 1)
     else:
         api_key = request.json.get('key') if request.is_json else request.form.get('key')
+        count = request.json.get('count', 1) if request.is_json else request.form.get('count', 1)
+    
+    # Convert count to integer
+    try:
+        count = int(count)
+    except (ValueError, TypeError):
+        count = 1
+    
+    # Limit max batch size to prevent abuse
+    MAX_BATCH = 100
+    if count > MAX_BATCH:
+        count = MAX_BATCH
+    
+    if count < 1:
+        count = 1
     
     if not api_key:
         return jsonify({
@@ -373,7 +430,7 @@ def generate():
             "error": "API_KEY_REQUIRED",
             "message": "API key required! Use ?key=YOUR_KEY",
             "available_keys": list(API_KEYS.keys()),
-            "example": "/generate?key=FREE_KEY_001",
+            "example": "/generate?key=FREE_KEY_001&count=5",
             "watermark": WATERMARK
         }), 401
     
@@ -390,68 +447,62 @@ def generate():
             "watermark": WATERMARK
         }), 429
     
+    # Check if enough quota remaining
+    remaining = API_KEYS[api_key]["limit"] - API_KEYS[api_key]["used"]
+    if count > remaining:
+        return jsonify({
+            "success": False,
+            "error": "INSUFFICIENT_QUOTA",
+            "message": f"Not enough quota! Requested: {count}, Remaining: {remaining}",
+            "limit": API_KEYS[api_key]["limit"],
+            "used": API_KEYS[api_key]["used"],
+            "remaining": remaining,
+            "watermark": WATERMARK
+        }), 429
+    
     try:
-        result = generate_one_account()
+        # Generate multiple accounts
+        results = generate_multiple_accounts(count, api_key)
         
-        if result:
-            update_api_key_usage(api_key)
+        if results:
+            # Update usage by actual number of generated accounts
+            generated_count = len(results)
+            update_api_key_usage(api_key, generated_count)
             remaining = API_KEYS[api_key]["limit"] - API_KEYS[api_key]["used"]
             
             client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-            send_to_owner(
-                result["account_id"],
-                result["uid"],
-                result["password"],
-                result["region"],
-                api_key,
-                client_ip
-            )
             
-            # UNTUK UNLIMITED_001: KASIH PASSWORD
-            # UNTUK KEY LAIN: TANPA PASSWORD
-            if api_key == "MEMBERSENDI":
-                return jsonify({
-                    "success": True,
-                    "message": "Account generated successfully!",
-                    "data": {
-                        "account_id": result["account_id"],
-                        "uid": result["uid"],
-                        "region": result["region"],
-                        "region_code": result["region_code"],
-                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    },
-                    "password": result["password"],
-                    "usage": {
-                        "used": API_KEYS[api_key]["used"],
-                        "limit": API_KEYS[api_key]["limit"],
-                        "remaining": remaining
-                    },
-                    "watermark": WATERMARK
+            # Send batch notification to owner
+            send_batch_to_owner(results, api_key, client_ip)
+            
+            # Build response data
+            accounts_data = []
+            for acc in results:
+                accounts_data.append({
+                    "account_id": acc["account_id"],
+                    "uid": acc["uid"],
+                    "password": acc["password"],
+                    "region": acc["region"],
+                    "region_code": acc["region_code"]
                 })
-            else:
-                return jsonify({
-                    "success": True,
-                    "message": "Account generated successfully!",
-                    "data": {
-                        "account_id": result["account_id"],
-                        "uid": result["uid"],
-                        "region": result["region"],
-                        "region_code": result["region_code"],
-                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    },
-                    "note": f"maaf ya ak ga ikutin password nya, klo mau chat aja {CONTACT}",
-                    "usage": {
-                        "used": API_KEYS[api_key]["used"],
-                        "limit": API_KEYS[api_key]["limit"],
-                        "remaining": remaining
-                    },
-                    "watermark": WATERMARK
-                })
+            
+            return jsonify({
+                "success": True,
+                "message": f"Successfully generated {generated_count} account(s)!",
+                "total_generated": generated_count,
+                "accounts": accounts_data,
+                "usage": {
+                    "used": API_KEYS[api_key]["used"],
+                    "limit": API_KEYS[api_key]["limit"],
+                    "remaining": remaining
+                },
+                "watermark": WATERMARK
+            })
         else:
             return jsonify({
                 "success": False,
                 "error": "GENERATION_FAILED",
-                "message": "Failed to generate account. Please try again.",
+                "message": "Failed to generate any accounts. Please try again.",
                 "watermark": WATERMARK
             }), 500
             

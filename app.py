@@ -409,7 +409,7 @@ def generate():
             
             # UNTUK UNLIMITED_001: KASIH PASSWORD
             # UNTUK KEY LAIN: TANPA PASSWORD
-            if api_key == "UNLIMITED_001":
+            if api_key == "MEMBERSENDI":
                 return jsonify({
                     "success": True,
                     "message": "Account generated successfully!",

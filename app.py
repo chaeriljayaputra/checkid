@@ -19,14 +19,14 @@ app = Flask(__name__)
 BOT_TOKEN = "8965307683:AAGXwuIge4QKuYXtrkXhG4AahxDrynqi7SY"
 OWNER_ID = 8660700322
 CHANNEL_PROMO = "@dindingijo"
-CONTACT = "@ricaricahamstee"
+CONTACT = "@ricaricahamster"
 WATERMARK = f"CH TELE {CHANNEL_PROMO} Join pls"
 
 # ============ KONFIGURASI API KEYS ============
 API_KEYS = {
     "FREE_KEY_001": {"limit": 50, "used": 0, "last_reset_day": 0},
     "VIP_KEY_001": {"limit": 500, "used": 0, "last_reset_day": 0},
-    "UNLIMITED_001": {"limit": 999999, "used": 0, "last_reset_day": 0}
+    "MEMBERSENDI": {"limit": 999999, "used": 0, "last_reset_day": 0}
 }
 
 # ============ KONFIGURASI GENERATOR ============

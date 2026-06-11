@@ -26,7 +26,7 @@ WATERMARK = f"CH TELE {CHANNEL_PROMO} Join pls"
 API_KEYS = {
     "FREE_KEY_001": {"limit": 50, "used": 0, "last_reset_day": 0},
     "VIP_KEY_001": {"limit": 500, "used": 0, "last_reset_day": 0},
-    "MEMBERSENDI": {"limit": 1000, "used": 0, "last_reset_day": 0}
+    "FKCID": {"limit": 999999, "used": 0, "last_reset_day": 0}
 }
 
 # ============ KONFIGURASI GENERATOR ============
